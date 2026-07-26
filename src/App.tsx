@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { AgentDrilldown } from './components/AgentDrilldown'
 import { AgentsPanel } from './components/AgentsPanel'
 import { ChallengeDrilldown } from './components/ChallengeDrilldown'
@@ -63,12 +64,15 @@ export function App() {
   const selectedChallengeId = selection?.kind === 'challenge' ? selection.id : null
   const detail = useDealDetail(selectedDealId, streaming)
   const challengeDetail = useChallengeDetail(selectedChallengeId, streaming)
-  const selectedAgent =
-    selection?.kind === 'agent'
-      ? agents.data?.find((agent) => agent.id === selection.id)
-      : undefined
 
-  const selectAgent = (id: string) => { select({ kind: 'agent', id }) }
+  // The agent view is a slide-over, not a selection: peeking at who an agent
+  // is should never evict the deal or negotiation you were reading.
+  const [agentId, setAgentId] = useState<string | null>(null)
+  const selectedAgent = agentId === null
+    ? undefined
+    : agents.data?.find((agent) => agent.id === agentId)
+
+  const selectAgent = (id: string) => { setAgentId(id) }
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-6 space-y-4">
@@ -170,18 +174,39 @@ export function App() {
           {selection?.kind === 'challenge' && challengeDetail.data && (
             <ChallengeDrilldown detail={challengeDetail.data} onSelectAgent={selectAgent} />
           )}
-          {selection?.kind === 'agent' && selectedAgent && (
+        </div>
+      </div>
+
+      {selectedAgent && (
+        <>
+          <button
+            type="button"
+            aria-label="Close agent panel"
+            onClick={() => { setAgentId(null) }}
+            className="fixed inset-0 bg-black/50 z-40 cursor-default"
+          />
+          <aside className="fixed right-0 top-0 bottom-0 w-full max-w-md z-50 overflow-y-auto bg-bg-page border-l border-neon-cyan/40 shadow-2xl p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="font-mono text-sm text-neon-cyan">AGENT</h2>
+              <button
+                type="button"
+                onClick={() => { setAgentId(null) }}
+                className="font-mono text-sm text-text-muted hover:text-text-primary px-2 py-0.5 border border-border-default rounded-md"
+              >
+                ✕
+              </button>
+            </div>
             <AgentDrilldown
               agent={selectedAgent}
               events={feed.events}
               challenges={challenges.data}
               deals={deals.data}
-              onSelectChallenge={(id) => { select({ kind: 'challenge', id }) }}
-              onSelectDeal={(id) => { select({ kind: 'deal', id }) }}
+              onSelectChallenge={(id) => { select({ kind: 'challenge', id }); setAgentId(null) }}
+              onSelectDeal={(id) => { select({ kind: 'deal', id }); setAgentId(null) }}
             />
-          )}
-        </div>
-      </div>
+          </aside>
+        </>
+      )}
 
       <footer className="pt-4 border-t border-border-default/60 flex flex-wrap gap-x-5 gap-y-2 items-center text-[11px] font-mono text-text-muted">
         <span>

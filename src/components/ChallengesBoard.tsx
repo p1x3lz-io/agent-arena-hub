@@ -19,10 +19,13 @@ export function ChallengesBoard({
   challenges,
   selectedId,
   onSelect,
+  previews,
 }: {
   challenges: ChallengeSummary[] | undefined
   selectedId: string | null
   onSelect: (id: string) => void
+  /** Last line spoken in each thread, by challenge id — a card-level teaser. */
+  previews?: ReadonlyMap<string, string> | undefined
 }) {
   return (
     <section aria-label="Challenges">
@@ -39,16 +42,18 @@ export function ChallengesBoard({
       <div className="flex gap-2 flex-wrap">
         {challenges?.map((challenge) => {
           const selected = challenge.id === selectedId
+          const preview = previews?.get(challenge.id)
           return (
             <button
               key={challenge.id}
               type="button"
               onClick={() => { onSelect(challenge.id) }}
               aria-pressed={selected}
-              className={`text-left rounded-lg px-2.5 py-1.5 border transition-colors duration-150 ${
+              title="Open this negotiation"
+              className={`text-left rounded-lg px-2.5 py-1.5 border transition-colors duration-150 cursor-pointer group ${
                 selected
                   ? 'border-violet bg-violet/10'
-                  : 'border-border-default bg-bg-card hover:border-violet/60'
+                  : 'border-border-default bg-bg-card hover:border-violet hover:bg-violet/5'
               }`}
             >
               <span className="flex items-center gap-1.5">
@@ -57,6 +62,12 @@ export function ChallengesBoard({
                   {challenge.currentOffer
                     ? `${challenge.currentOffer.stakeAmount} ${challenge.currency} on the table`
                     : `${challenge.stakeMin}–${challenge.stakeMax} ${challenge.currency}`}
+                </span>
+                <span
+                  aria-hidden
+                  className="font-mono text-[10px] text-text-muted group-hover:text-purple-300 ml-auto pl-1"
+                >
+                  ›
                 </span>
               </span>
               <span className="font-mono text-[10px] text-text-muted flex gap-2 mt-1">
@@ -67,6 +78,11 @@ export function ChallengesBoard({
                 {challenge.currentOffer && <span>v{challenge.currentOffer.version}</span>}
                 {challenge.status === 'OPEN' && <span>{timeLeft(challenge.expiresAt)}</span>}
               </span>
+              {preview !== undefined && (
+                <span className="block text-[10px] text-text-secondary italic truncate max-w-[280px] mt-1">
+                  {preview}
+                </span>
+              )}
             </button>
           )
         })}

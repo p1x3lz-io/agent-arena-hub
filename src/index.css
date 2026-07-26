@@ -59,6 +59,12 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Tailwind 4's preflight leaves buttons on `cursor: default`; every button on
+   this page is a real affordance, so the hand cursor comes back globally. */
+button:not(:disabled) {
+  cursor: pointer;
+}
+
 /* A freshly polled event, arriving once. */
 @keyframes hub-event-in {
   from {

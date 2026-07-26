@@ -1,18 +1,21 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { AgentDrilldown } from './components/AgentDrilldown'
 import { AgentsPanel } from './components/AgentsPanel'
 import { ChallengeDrilldown } from './components/ChallengeDrilldown'
 import { ChallengesBoard } from './components/ChallengesBoard'
 import { DealDrilldown, StateChip } from './components/DealDrilldown'
 import { EventFeed } from './components/EventFeed'
+import { GlobalChat } from './components/GlobalChat'
 import { PipelineStrip } from './components/PipelineStrip'
 import { P1X3LZLogo } from './components/P1X3LZLogo'
 import { ARENA_URL } from './api'
 import { ARENA_REPO_URL, HUB_REPO_URL } from './config'
 import { dealToStages } from './stageModel'
 import {
+  chatChallengeIds,
   useAgents,
   useChallengeDetail,
+  useChallengeDetails,
   useChallenges,
   useDealDetail,
   useDeals,
@@ -65,6 +68,35 @@ export function App() {
   const detail = useDealDetail(selectedDealId, streaming)
   const challengeDetail = useChallengeDetail(selectedChallengeId, streaming)
 
+  // The global chat follows the most recent negotiations; the same details
+  // also give each challenge card its last-line teaser.
+  const chatIds = useMemo(() => chatChallengeIds(challenges.data), [challenges.data])
+  const chatChallenges = useChallengeDetails(chatIds, streaming)
+  const previews = useMemo(
+    () =>
+      new Map(
+        chatChallenges.flatMap((challenge) => {
+          const last = challenge.messages.at(-1)
+          return last === undefined
+            ? []
+            : [[challenge.id, `${last.authorName}: ${last.body}`] as const]
+        }),
+      ),
+    [chatChallenges],
+  )
+
+  // A selected challenge must be SEEN opening: its drill-down sits right
+  // under the board, and the page nudges it into view on every selection.
+  const challengeDrilldownRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (selectedChallengeId !== null) {
+      challengeDrilldownRef.current?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'nearest',
+      })
+    }
+  }, [selectedChallengeId])
+
   // The agent view is a slide-over, not a selection: peeking at who an agent
   // is should never evict the deal or negotiation you were reading.
   const [agentId, setAgentId] = useState<string | null>(null)
@@ -113,12 +145,18 @@ export function App() {
 
       <PipelineStrip stages={dealToStages(detail.data ?? null)} />
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(290px,_1fr)_2.2fr]">
+      <div className="grid gap-4 lg:grid-cols-[minmax(320px,_1.2fr)_2fr]">
         <div className="space-y-4 min-w-0">
+          <GlobalChat
+            challenges={chatChallenges}
+            onSelectAgent={selectAgent}
+            onSelectChallenge={(id) => { select({ kind: 'challenge', id }) }}
+          />
           <EventFeed
             events={feed.events}
             streamOpen={feed.streamOpen}
             isError={feed.isError}
+            defaultOpen={false}
           />
           <AgentsPanel agents={agents.data} onSelect={selectAgent} />
         </div>
@@ -128,7 +166,25 @@ export function App() {
             challenges={challenges.data}
             selectedId={selectedChallengeId}
             onSelect={(id) => { select({ kind: 'challenge', id }) }}
+            previews={previews}
           />
+
+          {/* The selected negotiation opens HERE, right under the board it
+              was clicked on — never below the fold. */}
+          {selection?.kind === 'challenge' && (
+            <div ref={challengeDrilldownRef}>
+              {challengeDetail.data ? (
+                <ChallengeDrilldown
+                  detail={challengeDetail.data}
+                  onSelectAgent={selectAgent}
+                />
+              ) : (
+                <p className="text-xs text-text-secondary bg-bg-card border border-border-default rounded-lg px-3 py-2.5">
+                  Opening the negotiation…
+                </p>
+              )}
+            </div>
+          )}
 
           <nav aria-label="Deals" className="flex gap-2 flex-wrap">
             {(deals.data?.length ?? 0) === 0 && (
@@ -171,9 +227,6 @@ export function App() {
           {selection?.kind === 'deal' && detail.data && (
             <DealDrilldown detail={detail.data} onSelectAgent={selectAgent} />
           )}
-          {selection?.kind === 'challenge' && challengeDetail.data && (
-            <ChallengeDrilldown detail={challengeDetail.data} onSelectAgent={selectAgent} />
-          )}
         </div>
       </div>
 
@@ -185,7 +238,10 @@ export function App() {
             onClick={() => { setAgentId(null) }}
             className="fixed inset-0 bg-black/50 z-40 cursor-default"
           />
-          <aside className="fixed right-0 top-0 bottom-0 w-full max-w-md z-50 overflow-y-auto bg-bg-page border-l border-neon-cyan/40 shadow-2xl p-4 space-y-3">
+          {/* bg-surface-900 (the page's own background), NOT `bg-bg-page` —
+              that token does not exist in the theme, and an unknown utility
+              compiles to nothing: the sheet was transparent. */}
+          <aside className="fixed right-0 top-0 bottom-0 w-full max-w-md z-50 overflow-y-auto bg-surface-900 border-l border-neon-cyan/40 shadow-2xl p-4 space-y-3">
             <div className="flex items-center justify-between">
               <h2 className="font-mono text-sm text-neon-cyan">AGENT</h2>
               <button

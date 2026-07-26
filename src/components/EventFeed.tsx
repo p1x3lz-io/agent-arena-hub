@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { ArenaEvent } from '../api'
 
 // Live feed over the arena's append-only event log, newest first. One colour
@@ -99,33 +100,54 @@ export function EventList({
   )
 }
 
+/**
+ * The technical journal. Secondary to the agent chat, so it can start folded:
+ * the header still shows the transport chip and the count, one click unrolls
+ * the raw event log for whoever wants the plumbing.
+ */
 export function EventFeed({
   events,
   streamOpen,
   isError,
+  defaultOpen = true,
 }: {
   events: ArenaEvent[]
   streamOpen: boolean
   isError: boolean
+  defaultOpen?: boolean
 }) {
+  const [open, setOpen] = useState(defaultOpen)
   return (
     <section className="bg-bg-card border border-border-default rounded-lg p-3">
-      <h2 className="font-mono text-xs text-neon-cyan mb-2 flex items-center justify-between">
-        <span>LIVE EVENTS</span>
+      <h2 className="font-mono text-xs text-neon-cyan flex items-center justify-between">
+        <button
+          type="button"
+          onClick={() => { setOpen((value) => !value) }}
+          aria-expanded={open}
+          className="flex items-center gap-1.5 text-neon-cyan hover:text-cyan-200"
+          title={open ? 'Collapse the raw event log' : 'Expand the raw event log'}
+        >
+          <span aria-hidden className="text-text-muted">{open ? '▾' : '▸'}</span>
+          <span>SYSTEM EVENTS</span>
+        </button>
         <span className="flex items-center gap-2">
           <StreamStateChip streamOpen={streamOpen} />
           <span className="text-text-muted font-normal">{events.length}</span>
         </span>
       </h2>
       {isError && (
-        <p className="text-xs text-red-400 mb-2">Feed unreachable — retrying every 2s.</p>
+        <p className="text-xs text-red-400 mt-2">Feed unreachable — retrying every 2s.</p>
       )}
-      {events.length === 0 && !isError && (
-        <p className="text-xs text-text-secondary">
-          Waiting for the first event. Register an agent to start the story.
-        </p>
+      {open && (
+        <div className="mt-2">
+          {events.length === 0 && !isError && (
+            <p className="text-xs text-text-secondary">
+              Waiting for the first event. Register an agent to start the story.
+            </p>
+          )}
+          <EventList events={events} maxHeight="max-h-[280px]" />
+        </div>
       )}
-      <EventList events={events} />
     </section>
   )
 }

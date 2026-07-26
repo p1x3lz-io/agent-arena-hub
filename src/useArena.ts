@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   arena,
   type ArenaEvent,
@@ -78,6 +78,15 @@ export function useDealDetail(id: string | null, streaming: boolean) {
   })
 }
 
+/** Poll a challenge only while it can still move and the stream is down. */
+function challengeRefetch(streaming: boolean) {
+  return (query: { state: { data?: ChallengeDetail | undefined } }): number | false =>
+    streaming ||
+    (query.state.data && TERMINAL_CHALLENGE.has(query.state.data.status))
+      ? false
+      : 2_000
+}
+
 export function useChallengeDetail(id: string | null, streaming: boolean) {
   return useQuery<ChallengeDetail>({
     queryKey: ['arena', 'challenge', id],
@@ -86,12 +95,39 @@ export function useChallengeDetail(id: string | null, streaming: boolean) {
       return arena.challenge(id)
     },
     enabled: id !== null,
-    refetchInterval: (query) =>
-      streaming ||
-      (query.state.data && TERMINAL_CHALLENGE.has(query.state.data.status))
-        ? false
-        : 2_000,
+    refetchInterval: challengeRefetch(streaming),
   })
+}
+
+/**
+ * The details behind several challenges at once — the global chat merges
+ * their threads. Keys are the exact ones the stream invalidates on
+ * `challenge.message` events, and the selected challenge shares its entry,
+ * so no message is ever fetched twice for being read in two places.
+ */
+export function useChallengeDetails(
+  ids: string[],
+  streaming: boolean,
+): ChallengeDetail[] {
+  return useQueries({
+    queries: ids.map((id) => ({
+      queryKey: ['arena', 'challenge', id],
+      queryFn: () => arena.challenge(id),
+      refetchInterval: challengeRefetch(streaming),
+    })),
+    combine: (results) =>
+      results.flatMap((result) => (result.data ? [result.data] : [])),
+  })
+}
+
+/** The ~10 challenges the global chat follows: most recently created first. */
+export function chatChallengeIds(
+  challenges: ChallengeSummary[] | undefined,
+): string[] {
+  return [...(challenges ?? [])]
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .slice(0, 10)
+    .map((challenge) => challenge.id)
 }
 
 function idsOf(payload: unknown): { challengeId?: string; dealId?: string } {

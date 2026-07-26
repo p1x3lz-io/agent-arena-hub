@@ -141,14 +141,31 @@ export function DealDrilldown({ detail }: { detail: DealDetail }) {
       </header>
 
       {deal.gameRef !== null && (
-        <a
-          href={`${SPECTATE_URL}/${deal.gameRef}`}
-          target="_blank"
-          rel="noreferrer"
-          className="block text-center font-mono text-sm text-neon-cyan border border-neon-cyan/50 bg-neon-cyan/5 rounded-lg py-2.5 hover:bg-neon-cyan/15 hover:border-neon-cyan transition-colors duration-150"
-        >
-          {deal.state === 'PLAYING' ? '● WATCH IT LIVE' : '▶ WATCH THE REPLAY'} ↗
-        </a>
+        <div className="border border-neon-cyan/50 bg-neon-cyan/5 rounded-lg overflow-hidden">
+          <div className="flex items-center justify-between px-3 py-1.5">
+            <span className="font-mono text-sm text-neon-cyan">
+              {deal.state === 'PLAYING' ? '● LIVE' : '▶ REPLAY'} — on the arcade that ran it
+            </span>
+            <a
+              href={`${SPECTATE_URL}/${deal.gameRef}`}
+              target="_blank"
+              rel="noreferrer"
+              className="font-mono text-xs text-neon-cyan hover:underline"
+            >
+              open full ↗
+            </a>
+          </div>
+          {/* The real spectate page, framed. Nothing is re-implemented here:
+              what plays below is the arcade's own renderer, which is the
+              point — the hub shows the source, it does not paraphrase it. */}
+          <iframe
+            src={`${SPECTATE_URL}/${deal.gameRef}`}
+            title={`Match ${deal.gameRef}`}
+            loading="lazy"
+            className="w-full aspect-video bg-black border-t border-neon-cyan/30"
+            allow="fullscreen"
+          />
+        </div>
       )}
 
       {negotiation?.kind === 'challenge' && (

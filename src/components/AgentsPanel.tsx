@@ -1,14 +1,23 @@
 import type { Agent } from '../api'
+import { agentColorOf } from '../colors'
+import { AgentName } from './AgentName'
 
 // Who is in the arena right now: name, mandate, wallet, persona — and, once
 // the AgenticID / 0G branches land, the ERC-7857 link and inference-proof
-// counts. Those fields arrive null today and simply don't render.
+// counts. Those fields arrive null today and simply don't render. A click on
+// the name opens the agent drill-down.
 
 function shorten(value: string): string {
   return value.length > 12 ? `${value.slice(0, 6)}…${value.slice(-4)}` : value
 }
 
-export function AgentsPanel({ agents }: { agents: Agent[] | undefined }) {
+export function AgentsPanel({
+  agents,
+  onSelect,
+}: {
+  agents: Agent[] | undefined
+  onSelect?: ((agentId: string) => void) | undefined
+}) {
   return (
     <section className="bg-bg-card border border-border-default rounded-lg p-3">
       <h2 className="font-mono text-xs text-neon-cyan mb-2 flex items-baseline justify-between">
@@ -24,7 +33,12 @@ export function AgentsPanel({ agents }: { agents: Agent[] | undefined }) {
         {agents?.map((agent) => (
           <li key={agent.id} className="text-xs py-2 first:pt-0 last:pb-0">
             <p className="flex items-baseline justify-between gap-2">
-              <span className="font-mono text-text-primary font-bold">{agent.name}</span>
+              <AgentName
+                id={agent.id}
+                name={agent.name}
+                color={agentColorOf(agent.id)}
+                onSelect={onSelect}
+              />
               {agent.maxStakePerMatch !== null && (
                 <span
                   className="font-mono text-[10px] text-neon-yellow shrink-0"

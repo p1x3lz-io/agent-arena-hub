@@ -1,4 +1,7 @@
+import { AgentDrilldown } from './components/AgentDrilldown'
 import { AgentsPanel } from './components/AgentsPanel'
+import { ChallengeDrilldown } from './components/ChallengeDrilldown'
+import { ChallengesBoard } from './components/ChallengesBoard'
 import { DealDrilldown, StateChip } from './components/DealDrilldown'
 import { EventFeed } from './components/EventFeed'
 import { PipelineStrip } from './components/PipelineStrip'
@@ -8,11 +11,13 @@ import { ARENA_REPO_URL, HUB_REPO_URL } from './config'
 import { dealToStages } from './stageModel'
 import {
   useAgents,
+  useChallengeDetail,
+  useChallenges,
   useDealDetail,
   useDeals,
   useEventFeed,
   useOverview,
-  useSelectedDeal,
+  useSelection,
 } from './useArena'
 
 // A public window on the Agent Arena.
@@ -22,6 +27,10 @@ import {
 // steps is readable here — including the negotiations, which is the part most
 // systems hide. The claim this page makes is not "trust us": it is that you can
 // click through to the ledger, the storage and the replay and check.
+//
+// The page is stream-first: one SSE connection carries every write, and the
+// drill-down column follows whatever you click — a deal, a challenge still
+// being haggled, or an agent.
 
 function HealthChip({
   label,
@@ -43,11 +52,23 @@ function HealthChip({
 
 export function App() {
   const overview = useOverview()
-  const agents = useAgents()
-  const deals = useDeals()
   const feed = useEventFeed()
-  const { selectedId, select } = useSelectedDeal(deals.data)
-  const detail = useDealDetail(selectedId)
+  const streaming = feed.streamOpen
+  const agents = useAgents(streaming)
+  const deals = useDeals(streaming)
+  const challenges = useChallenges(streaming)
+  const { selection, select } = useSelection(deals.data)
+
+  const selectedDealId = selection?.kind === 'deal' ? selection.id : null
+  const selectedChallengeId = selection?.kind === 'challenge' ? selection.id : null
+  const detail = useDealDetail(selectedDealId, streaming)
+  const challengeDetail = useChallengeDetail(selectedChallengeId, streaming)
+  const selectedAgent =
+    selection?.kind === 'agent'
+      ? agents.data?.find((agent) => agent.id === selection.id)
+      : undefined
+
+  const selectAgent = (id: string) => { select({ kind: 'agent', id }) }
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-6 space-y-4">
@@ -90,11 +111,21 @@ export function App() {
 
       <div className="grid gap-4 lg:grid-cols-[minmax(290px,_1fr)_2.2fr]">
         <div className="space-y-4 min-w-0">
-          <EventFeed events={feed.events} isError={feed.isError} />
-          <AgentsPanel agents={agents.data} />
+          <EventFeed
+            events={feed.events}
+            streamOpen={feed.streamOpen}
+            isError={feed.isError}
+          />
+          <AgentsPanel agents={agents.data} onSelect={selectAgent} />
         </div>
 
         <div className="space-y-3 min-w-0">
+          <ChallengesBoard
+            challenges={challenges.data}
+            selectedId={selectedChallengeId}
+            onSelect={(id) => { select({ kind: 'challenge', id }) }}
+          />
+
           <nav aria-label="Deals" className="flex gap-2 flex-wrap">
             {(deals.data?.length ?? 0) === 0 && (
               <p className="text-xs text-text-secondary bg-bg-card border border-border-default rounded-lg px-3 py-2.5 w-full">
@@ -103,13 +134,13 @@ export function App() {
               </p>
             )}
             {deals.data?.map((deal) => {
-              const selected = deal.id === selectedId
+              const selected = deal.id === selectedDealId
               return (
                 <button
                   key={deal.id}
                   type="button"
                   onClick={() => {
-                    select(deal.id)
+                    select({ kind: 'deal', id: deal.id })
                   }}
                   aria-pressed={selected}
                   className={`text-left rounded-lg px-2.5 py-1.5 border transition-colors duration-150 ${
@@ -133,7 +164,22 @@ export function App() {
             })}
           </nav>
 
-          {detail.data && <DealDrilldown detail={detail.data} />}
+          {selection?.kind === 'deal' && detail.data && (
+            <DealDrilldown detail={detail.data} onSelectAgent={selectAgent} />
+          )}
+          {selection?.kind === 'challenge' && challengeDetail.data && (
+            <ChallengeDrilldown detail={challengeDetail.data} onSelectAgent={selectAgent} />
+          )}
+          {selection?.kind === 'agent' && selectedAgent && (
+            <AgentDrilldown
+              agent={selectedAgent}
+              events={feed.events}
+              challenges={challenges.data}
+              deals={deals.data}
+              onSelectChallenge={(id) => { select({ kind: 'challenge', id }) }}
+              onSelectDeal={(id) => { select({ kind: 'deal', id }) }}
+            />
+          )}
         </div>
       </div>
 

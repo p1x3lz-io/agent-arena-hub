@@ -159,6 +159,52 @@ export interface DealView {
   updatedAt: number
 }
 
+export type ChallengeStatus = 'OPEN' | 'LOCKED' | 'CLOSED' | 'EXPIRED'
+
+export interface ChallengeSummary {
+  id: string
+  status: ChallengeStatus
+  challengerId: string
+  stakeMin: string
+  stakeMax: string
+  currency: string
+  seats: number
+  /** The offer currently on the table, if the haggling produced one yet. */
+  currentOffer: { stakeAmount: string; seats: number; version: number } | null
+  partySize: number
+  expiresAt: number
+  createdAt: number
+}
+
+/** Challenge offers also carry how many players this version calls for. */
+export interface ChallengeOffer extends Offer {
+  seats: number
+}
+
+export interface PartyMember {
+  agentId: string
+  name: string
+  /** Whether this member has agreed to the offer currently on the table. */
+  agreed: boolean
+}
+
+export interface ChallengeDetail {
+  id: string
+  challengerId: string
+  status: ChallengeStatus
+  currentOfferId: string | null
+  stakeMin: string
+  stakeMax: string
+  currency: string
+  seats: number
+  party: PartyMember[]
+  grid: { width: number; height: number }
+  expiresAt: number
+  createdAt: number
+  offers: ChallengeOffer[]
+  messages: Message[]
+}
+
 export type Negotiation = {
   kind: 'challenge'
   challenge: { offers: Offer[]; messages: Message[] }
@@ -185,4 +231,8 @@ export const arena = {
     get<EventPage>(`/public/events?after=${String(after)}&limit=${String(limit)}`),
   deals: () => get<DealSummary[]>('/public/deals'),
   deal: (id: string) => get<DealDetail>(`/public/deals/${encodeURIComponent(id)}`),
+  challenges: (limit: number) =>
+    get<ChallengeSummary[]>(`/public/challenges?limit=${String(limit)}`),
+  challenge: (id: string) =>
+    get<ChallengeDetail>(`/public/challenges/${encodeURIComponent(id)}`),
 }

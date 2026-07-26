@@ -1,17 +1,32 @@
 import { useCallback, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { arena, type ArenaEvent, type DealDetail, type DealSummary } from './api'
+import {
+  arena,
+  type ArenaEvent,
+  type ChallengeDetail,
+  type ChallengeSummary,
+  type DealDetail,
+  type DealSummary,
+} from './api'
+import { useArenaStream } from './useStream'
 
-// Poll cadences: the feed and the deals carry the story, so they poll fast;
-// the overview and the roster change rarely. A cursor poll is all this needs —
-// the page has no backend of its own to hold a socket open, which is exactly
-// what makes it something you can host anywhere and check against the arena.
+// SSE-first data layer. The stream carries the story; every list and
+// drill-down below polls only while the stream is down. When it is up, an
+// incoming event invalidates exactly the caches it touches (the payload
+// names its challenge or deal), so a fresh fetch lands within a render of
+// the arena writing — and an idle page costs the arena nothing.
+//
+// The page still has no backend of its own: both transports read the same
+// public journal, and both feed one dedupe-by-seq accumulator, so overlap
+// between a reconnecting stream and a covering poll is harmless.
 
 const FEED_LIMIT = 100
 /** Ring buffer bound so an hours-old dashboard doesn't grow without limit. */
 const FEED_KEEP = 300
+const CHALLENGE_LIMIT = 25
 
 const TERMINAL_STATES = new Set(['SETTLED', 'ABORTED'])
+const TERMINAL_CHALLENGE = new Set(['CLOSED', 'EXPIRED'])
 
 export function useOverview() {
   return useQuery({
@@ -21,23 +36,31 @@ export function useOverview() {
   })
 }
 
-export function useAgents() {
+export function useAgents(streaming: boolean) {
   return useQuery({
     queryKey: ['arena', 'agents'],
     queryFn: () => arena.agents(),
-    refetchInterval: 30_000,
+    refetchInterval: streaming ? false : 30_000,
   })
 }
 
-export function useDeals() {
+export function useDeals(streaming: boolean) {
   return useQuery({
     queryKey: ['arena', 'deals'],
     queryFn: () => arena.deals(),
-    refetchInterval: 3_000,
+    refetchInterval: streaming ? false : 3_000,
   })
 }
 
-export function useDealDetail(id: string | null) {
+export function useChallenges(streaming: boolean) {
+  return useQuery({
+    queryKey: ['arena', 'challenges'],
+    queryFn: () => arena.challenges(CHALLENGE_LIMIT),
+    refetchInterval: streaming ? false : 3_000,
+  })
+}
+
+export function useDealDetail(id: string | null, streaming: boolean) {
   return useQuery<DealDetail>({
     queryKey: ['arena', 'deal', id],
     queryFn: () => {
@@ -45,29 +68,59 @@ export function useDealDetail(id: string | null) {
       return arena.deal(id)
     },
     enabled: id !== null,
-    // Terminal deals are immutable; live ones move every couple of seconds.
+    // Terminal deals are immutable; live ones move every couple of seconds
+    // when the stream is not there to push them.
     refetchInterval: (query) =>
-      query.state.data && TERMINAL_STATES.has(query.state.data.deal.state)
+      streaming ||
+      (query.state.data && TERMINAL_STATES.has(query.state.data.deal.state))
         ? false
         : 2_000,
   })
 }
 
+export function useChallengeDetail(id: string | null, streaming: boolean) {
+  return useQuery<ChallengeDetail>({
+    queryKey: ['arena', 'challenge', id],
+    queryFn: () => {
+      if (id === null) throw new Error('no challenge selected')
+      return arena.challenge(id)
+    },
+    enabled: id !== null,
+    refetchInterval: (query) =>
+      streaming ||
+      (query.state.data && TERMINAL_CHALLENGE.has(query.state.data.status))
+        ? false
+        : 2_000,
+  })
+}
+
+function idsOf(payload: unknown): { challengeId?: string; dealId?: string } {
+  if (typeof payload !== 'object' || payload === null) return {}
+  const record = payload as Record<string, unknown>
+  return {
+    ...(typeof record.challengeId === 'string'
+      ? { challengeId: record.challengeId }
+      : {}),
+    ...(typeof record.dealId === 'string' ? { dealId: record.dealId } : {}),
+  }
+}
+
 /**
  * The live feed over the arena's append-only event log.
  *
- * Primary transport is the SSE bridge (`/admin/arena-demo/stream`) — pushed,
- * ticket-authenticated, auto-reconnecting. While the stream is not open (no
- * backend stream, mock mode, reconnect gaps) a 2s cursor poll covers for it;
- * both paths append through one dedupe-by-seq accumulator so overlap and
- * replays are harmless. `after=0` on first connect deliberately replays
- * history: the dashboard backfills the whole story instead of starting blind.
+ * Primary transport is `/public/stream` (SSE); while it is not open — arena
+ * without the endpoint yet, reconnect gaps — a 2s cursor poll covers for it.
+ * `after=0` on first contact deliberately replays history on either path, so
+ * the dashboard backfills the whole story instead of starting blind.
  *
- * The stream also drives freshness: any deal/match event invalidates the
- * deals list and the open drill-down, so state flips render within a second
- * of the arena writing them.
+ * The feed also drives freshness for everything else: each event invalidates
+ * the list its family belongs to and the drill-down its payload names.
  */
-export function useEventFeed(): { events: ArenaEvent[]; isError: boolean } {
+export function useEventFeed(): {
+  events: ArenaEvent[]
+  streamOpen: boolean
+  isError: boolean
+} {
   const [events, setEvents] = useState<ArenaEvent[]>([])
   const lastSeq = useRef(0)
   const queryClient = useQueryClient()
@@ -78,23 +131,44 @@ export function useEventFeed(): { events: ArenaEvent[]; isError: boolean } {
       if (fresh.length === 0) return
       lastSeq.current = fresh.at(-1)?.seq ?? lastSeq.current
       setEvents((previous) => [...previous, ...fresh].slice(-FEED_KEEP))
-      if (
-        fresh.some(
-          (event) =>
-            event.type.startsWith('deal.') ||
-            event.type.startsWith('match.') ||
-            event.type.startsWith('table.'),
-        )
-      ) {
-        void queryClient.invalidateQueries({ queryKey: ['arena', 'deals'] })
-        void queryClient.invalidateQueries({ queryKey: ['arena', 'deal'] })
+
+      const invalidate = (key: (string | null)[]) =>
+        void queryClient.invalidateQueries({ queryKey: key })
+      for (const event of fresh) {
+        const { challengeId, dealId } = idsOf(event.payload)
+        // The haggling side: board + the thread the event belongs to.
+        if (
+          event.type.startsWith('challenge.') ||
+          event.type.startsWith('message.') ||
+          event.type.startsWith('offer.')
+        ) {
+          invalidate(['arena', 'challenges'])
+          if (challengeId !== undefined) invalidate(['arena', 'challenge', challengeId])
+        }
+        // The deal side — which also closes challenges, so both lists move.
+        if (
+          event.type.startsWith('deal.') ||
+          event.type.startsWith('match.') ||
+          event.type.startsWith('table.')
+        ) {
+          invalidate(['arena', 'deals'])
+          invalidate(dealId === undefined ? ['arena', 'deal'] : ['arena', 'deal', dealId])
+          invalidate(['arena', 'challenges'])
+          if (challengeId !== undefined) invalidate(['arena', 'challenge', challengeId])
+        }
+        if (event.type.startsWith('agent.')) invalidate(['arena', 'agents'])
       }
     },
     [queryClient],
   )
 
+  const streamOpen = useArenaStream(
+    useCallback((event: ArenaEvent) => { append([event]) }, [append]),
+  )
+
   const { isError } = useQuery({
     queryKey: ['arena', 'events'],
+    enabled: !streamOpen,
     refetchInterval: 2_000,
     queryFn: async () => {
       const page = await arena.events(lastSeq.current, FEED_LIMIT)
@@ -103,20 +177,45 @@ export function useEventFeed(): { events: ArenaEvent[]; isError: boolean } {
     },
   })
 
-  return { events, isError }
+  return { events, streamOpen, isError: !streamOpen && isError }
 }
 
 /**
- * Which deal the drill-down shows. Auto-selects the most recent live deal
- * (else the most recent one) until the operator clicks a specific deal; a
- * click pins the choice and polling never steals the selection back.
+ * What the drill-down column shows: a deal, a challenge mid-haggle, or an
+ * agent. Auto-selects the most recent live deal (else the most recent one)
+ * until the operator clicks something; a click pins the choice and polling
+ * never steals the selection back.
  */
-export function useSelectedDeal(deals: DealSummary[] | undefined): {
-  selectedId: string | null
-  select: (id: string) => void
+export type Selection =
+  | { kind: 'deal'; id: string }
+  | { kind: 'challenge'; id: string }
+  | { kind: 'agent'; id: string }
+
+export function useSelection(deals: DealSummary[] | undefined): {
+  selection: Selection | null
+  select: (selection: Selection) => void
 } {
-  const [pinned, setPinned] = useState<string | null>(null)
-  if (pinned !== null) return { selectedId: pinned, select: setPinned }
+  const [pinned, setPinned] = useState<Selection | null>(null)
+  if (pinned !== null) return { selection: pinned, select: setPinned }
   const live = deals?.find((deal) => !TERMINAL_STATES.has(deal.state))
-  return { selectedId: live?.id ?? deals?.[0]?.id ?? null, select: setPinned }
+  const id = live?.id ?? deals?.[0]?.id
+  return {
+    selection: id === undefined ? null : { kind: 'deal', id },
+    select: setPinned,
+  }
+}
+
+/** Challenges an agent is haggling in, for the agent drill-down. */
+export function challengesOf(
+  agentId: string,
+  challenges: ChallengeSummary[] | undefined,
+): ChallengeSummary[] {
+  return (challenges ?? []).filter((challenge) => challenge.challengerId === agentId)
+}
+
+/** Whether an event involves an agent: addressed to it, or naming it. */
+export function eventInvolves(event: ArenaEvent, agentId: string): boolean {
+  if (event.targetAgentId === agentId) return true
+  if (typeof event.payload !== 'object' || event.payload === null) return false
+  return JSON.stringify(event.payload).includes(agentId)
 }

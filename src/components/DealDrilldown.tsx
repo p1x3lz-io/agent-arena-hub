@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react'
 import { SPECTATE_URL } from '../config'
+import { SEAT_COLORS } from '../colors'
+import { AgentName } from './AgentName'
 import type { DealDetail, Message, Offer } from '../api'
 
 // The selected deal, end to end: the negotiation that produced it, who paid
@@ -19,10 +21,12 @@ const STATE_COLORS: Record<string, string> = {
   SETTLED: 'text-neon-cyan border-neon-cyan/40 bg-neon-cyan/5',
   ABORTING: 'text-red-400 border-red-400/40 bg-red-400/5',
   ABORTED: 'text-red-400 border-red-400/40 bg-red-400/5',
+  // Challenge statuses share the chip: the board and the deals speak one language.
+  OPEN: 'text-green-300 border-green-400/40 bg-green-400/5',
+  LOCKED: 'text-neon-yellow border-neon-yellow/40 bg-neon-yellow/5',
+  CLOSED: 'text-neon-cyan border-neon-cyan/40 bg-neon-cyan/5',
+  EXPIRED: 'text-red-400 border-red-400/40 bg-red-400/5',
 }
-
-/** One colour per seat, applied to that agent's name everywhere in the deal. */
-const SEAT_COLORS = ['text-neon-cyan', 'text-neon-pink', 'text-green-300', 'text-neon-yellow']
 
 export function StateChip({ state }: { state: string }) {
   return (
@@ -51,14 +55,16 @@ function ExternalLink({ label, href }: { label: string; href: string }) {
   )
 }
 
-function Thread({
+export function Thread({
   messages,
   offers,
   colorOf,
+  onSelectAgent,
 }: {
   messages: Message[]
   offers: Offer[]
   colorOf: (agentId: string) => string
+  onSelectAgent?: ((agentId: string) => void) | undefined
 }) {
   const offerById = new Map(offers.map((offer) => [offer.id, offer]))
   return (
@@ -68,9 +74,12 @@ function Thread({
         return (
           <li key={message.id} className="text-xs bg-surface-800 rounded-md px-2.5 py-1.5">
             <p className="flex items-baseline justify-between gap-2">
-              <span className={`font-mono font-bold ${colorOf(message.authorId)}`}>
-                {message.authorName}
-              </span>
+              <AgentName
+                id={message.authorId}
+                name={message.authorName}
+                color={colorOf(message.authorId)}
+                onSelect={onSelectAgent}
+              />
               {offer && (
                 <span className="font-mono text-[10px] text-neon-yellow shrink-0">
                   offer v{offer.version} · {offer.stakeAmount}
@@ -85,7 +94,7 @@ function Thread({
   )
 }
 
-function Section({
+export function Section({
   title,
   children,
   flush = false,
@@ -104,7 +113,13 @@ function Section({
   )
 }
 
-export function DealDrilldown({ detail }: { detail: DealDetail }) {
+export function DealDrilldown({
+  detail,
+  onSelectAgent,
+}: {
+  detail: DealDetail
+  onSelectAgent?: ((agentId: string) => void) | undefined
+}) {
   const { deal, negotiation, links } = detail
   const winner = deal.players.find((player) => player.agentId === deal.winnerId)
   const colorOf = (agentId: string): string => {
@@ -119,7 +134,12 @@ export function DealDrilldown({ detail }: { detail: DealDetail }) {
           {deal.players.map((player, index) => (
             <span key={player.agentId}>
               {index > 0 && <span className="text-text-muted"> vs </span>}
-              <span className={colorOf(player.agentId)}>{player.name}</span>
+              <AgentName
+                id={player.agentId}
+                name={player.name}
+                color={colorOf(player.agentId)}
+                onSelect={onSelectAgent}
+              />
             </span>
           ))}
         </h2>
@@ -174,6 +194,7 @@ export function DealDrilldown({ detail }: { detail: DealDetail }) {
             messages={negotiation.challenge.messages}
             offers={negotiation.challenge.offers}
             colorOf={colorOf}
+            onSelectAgent={onSelectAgent}
           />
           <p className="mt-2 font-mono text-[10px] text-text-muted break-all">
             sha256 <span className="text-text-secondary">{deal.transcriptHash}</span>

@@ -3,6 +3,7 @@ import type { ArenaEvent } from '../api'
 // Live feed over the arena's append-only event log, newest first. One colour
 // per event family (a square dot, no chip border — the text carries the type)
 // so the eye can follow a deal through the noise; fresh rows slide in once.
+// The header chip says which transport is carrying the feed right now.
 
 function familyDot(type: string): string {
   if (type.startsWith('deal.')) return 'bg-neon-cyan'
@@ -35,26 +36,84 @@ function timeOf(ms: number): string {
   return new Date(ms).toLocaleTimeString('en-GB')
 }
 
+/** Stream up: pushed frames. Stream down: the 2s cursor poll covers. */
+export function StreamStateChip({ streamOpen }: { streamOpen: boolean }) {
+  return streamOpen ? (
+    <span
+      className="inline-flex items-center gap-1 text-[10px] font-normal text-green-300"
+      title="Live over Server-Sent Events — the arena pushes every write"
+    >
+      <span aria-hidden className="w-1.5 h-1.5 bg-neon-green" />
+      LIVE ●
+    </span>
+  ) : (
+    <span
+      className="inline-flex items-center gap-1 text-[10px] font-normal text-neon-yellow"
+      title="Stream down — polling the arena's event log every 2 seconds"
+    >
+      <span aria-hidden className="w-1.5 h-1.5 bg-neon-yellow" />
+      polling
+    </span>
+  )
+}
+
+/** The bare list, so the agent drill-down can show a filtered feed too. */
+export function EventList({
+  events,
+  maxHeight = 'max-h-[400px]',
+}: {
+  events: ArenaEvent[]
+  maxHeight?: string
+}) {
+  const latestSeq = events.at(-1)?.seq ?? 0
+  return (
+    <ul className={`${maxHeight} overflow-y-auto pr-1`}>
+      {[...events].reverse().map((event) => (
+        <li
+          key={event.seq}
+          className={`flex items-baseline gap-2 text-xs py-1 border-b border-border-default/40 last:border-0 ${
+            event.seq === latestSeq ? 'hub-event-in' : ''
+          }`}
+        >
+          <span className="font-mono text-[10px] text-text-muted shrink-0 tabular-nums">
+            {timeOf(event.createdAt)}
+          </span>
+          <span
+            aria-hidden
+            className={`w-1.5 h-1.5 shrink-0 self-center ${familyDot(event.type)}`}
+          />
+          <span className={`font-mono shrink-0 ${familyText(event.type)}`}>
+            {event.type}
+          </span>
+          {subjectOf(event.payload) && (
+            <span className="font-mono text-text-secondary truncate">
+              {subjectOf(event.payload)}
+            </span>
+          )}
+          {event.targetAgentId !== null && (
+            <span className="text-[10px] text-text-muted shrink-0 ml-auto">→ agent</span>
+          )}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 export function EventFeed({
   events,
+  streamOpen,
   isError,
 }: {
   events: ArenaEvent[]
+  streamOpen: boolean
   isError: boolean
 }) {
-  const latestSeq = events.at(-1)?.seq ?? 0
   return (
     <section className="bg-bg-card border border-border-default rounded-lg p-3">
       <h2 className="font-mono text-xs text-neon-cyan mb-2 flex items-center justify-between">
         <span>LIVE EVENTS</span>
         <span className="flex items-center gap-2">
-          <span
-            className="inline-flex items-center gap-1 text-[10px] font-normal text-green-300"
-            title="Polling the arena's event log every 2 seconds"
-          >
-            <span aria-hidden className="w-1.5 h-1.5 bg-neon-green" />
-            LIVE
-          </span>
+          <StreamStateChip streamOpen={streamOpen} />
           <span className="text-text-muted font-normal">{events.length}</span>
         </span>
       </h2>
@@ -66,35 +125,7 @@ export function EventFeed({
           Waiting for the first event. Register an agent to start the story.
         </p>
       )}
-      <ul className="max-h-[400px] overflow-y-auto pr-1">
-        {[...events].reverse().map((event) => (
-          <li
-            key={event.seq}
-            className={`flex items-baseline gap-2 text-xs py-1 border-b border-border-default/40 last:border-0 ${
-              event.seq === latestSeq ? 'hub-event-in' : ''
-            }`}
-          >
-            <span className="font-mono text-[10px] text-text-muted shrink-0 tabular-nums">
-              {timeOf(event.createdAt)}
-            </span>
-            <span
-              aria-hidden
-              className={`w-1.5 h-1.5 shrink-0 self-center ${familyDot(event.type)}`}
-            />
-            <span className={`font-mono shrink-0 ${familyText(event.type)}`}>
-              {event.type}
-            </span>
-            {subjectOf(event.payload) && (
-              <span className="font-mono text-text-secondary truncate">
-                {subjectOf(event.payload)}
-              </span>
-            )}
-            {event.targetAgentId !== null && (
-              <span className="text-[10px] text-text-muted shrink-0 ml-auto">→ agent</span>
-            )}
-          </li>
-        ))}
-      </ul>
+      <EventList events={events} />
     </section>
   )
 }

@@ -1,60 +1,57 @@
 @import 'tailwindcss';
 
-/* P1X3LZ design tokens — the same palette and type the game ships with, so a
-   spectator page and the arcade feel like one product. Kept in one @theme block
-   rather than scattered across components: this file IS the brand contract. */
+/* P1X3LZ V13 tokens — the exact palette the product ships (`v13.ts`), not a
+   neighbouring one. Square corners everywhere: the arcade has no radii, and a
+   rounded hub was the first thing that read as a different product. */
 @theme {
-  /* Primary — gold (logo, mascot, the thing your eye lands on first) */
-  --color-gold: #f5b731;
-  --color-gold-light: #ffd34e;
-  --color-gold-dark: #c46b00;
+  /* Ink */
+  --color-cyan: #3bd0ff;
+  --color-pink: #ff3b9a;
+  --color-yellow: #ffcd3b;
+  --color-purple: #a06bff;
+  --color-green: #5cff7a;
+  --color-red: #ff3b6b;
 
-  /* Accent — violet→cyan spectrum (chrome, borders, links) */
-  --color-violet: #9b30ff;
-  --color-blue: #4169e1;
-  --color-cyan: #00bfff;
-
-  /* Status */
-  --color-success: #7ce064;
-  --color-danger: #c80507;
-
-  /* Surfaces — deep navy/purple, never pure black */
-  --color-surface-900: #0d0b1e;
-  --color-surface-800: #151230;
-  --color-surface-700: #1e1a42;
-  --color-surface-600: #2a2555;
+  /* Surfaces — deep violet-black, never pure black */
+  --color-bg-top: #0f0a26;
+  --color-bg-deep: #07041a;
+  --color-card: #0f0728;
 
   /* Text */
-  --color-text-primary: #f0eef5;
-  --color-text-secondary: #a09cb5;
-  --color-text-muted: #605c75;
-
-  /* Semantic aliases */
-  --color-bg-card: #1e1a42;
-  --color-border-default: #2a2555;
-  --color-neon-cyan: #00bfff;
-  --color-neon-green: #7ce064;
-  --color-neon-pink: #ff2d95;
-  --color-neon-yellow: #ffd34e;
-  --color-neon-red: #c80507;
+  --color-ink: #ffffff;
+  /* Nothing secondary goes below this: the timestamps are what prove the
+     story, and at a lower alpha they stop being readable. */
+  --color-dim: rgba(255, 255, 255, 0.55);
+  --color-faint: rgba(255, 255, 255, 0.45);
 
   --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
   --font-pixel: 'Press Start 2P', monospace;
+
+  /* No rounded utilities in this theme — the corners are square. */
+  --radius-xs: 0px;
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+  --radius-2xl: 0px;
+  --radius-3xl: 0px;
+  --radius-4xl: 0px;
 }
 
 html {
-  background: var(--color-surface-900);
+  background: var(--color-bg-deep);
   color-scheme: dark;
 }
 
 body {
   margin: 0;
   background:
-    radial-gradient(120% 80% at 50% 0%, #241b4d 0%, transparent 60%),
-    var(--color-surface-900);
+    radial-gradient(ellipse 50% 30% at 30% 4%, rgba(255, 59, 154, 0.13), transparent 60%),
+    linear-gradient(180deg, #0f0a26 0%, #07041a 100%);
+  background-attachment: fixed;
   min-height: 100vh;
-  color: var(--color-text-primary);
+  color: var(--color-ink);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
 }
@@ -65,8 +62,36 @@ button:not(:disabled) {
   cursor: pointer;
 }
 
-/* A freshly polled event, arriving once. */
-@keyframes hub-event-in {
+a {
+  color: var(--color-purple);
+  text-decoration: none;
+}
+
+a:hover {
+  color: #c4a6ff;
+}
+
+/* The one thing on the page that must read as alive. */
+@keyframes pz-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.pz-pulse {
+  animation: pz-pulse 1.2s infinite;
+}
+
+.pz-pulse-slow {
+  animation: pz-pulse 1.8s infinite;
+}
+
+/* A line that just arrived on the stream, arriving once. */
+@keyframes pz-in {
   from {
     opacity: 0;
     transform: translateY(-3px);
@@ -77,31 +102,14 @@ button:not(:disabled) {
   }
 }
 
-/* The stage a deal is sitting in right now. */
-@keyframes hub-node-glow {
-  0%,
-  100% {
-    box-shadow: 0 0 6px 1px rgba(255, 211, 78, 0.55);
-  }
-  50% {
-    box-shadow: 0 0 2px 0 rgba(255, 211, 78, 0.25);
-  }
-}
-
-.hub-event-in {
-  animation: hub-event-in 0.25s cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-.hub-node-active {
-  animation: hub-node-glow 1.6s ease-in-out infinite;
+.pz-in {
+  animation: pz-in 0.25s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .hub-event-in {
+  .pz-pulse,
+  .pz-pulse-slow,
+  .pz-in {
     animation: none;
-  }
-  .hub-node-active {
-    animation: none;
-    box-shadow: 0 0 6px 1px rgba(255, 211, 78, 0.45);
   }
 }

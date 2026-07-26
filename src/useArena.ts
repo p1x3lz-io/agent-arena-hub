@@ -6,7 +6,6 @@ import {
   type ChallengeDetail,
   type ChallengeSummary,
   type DealDetail,
-  type DealSummary,
 } from './api'
 import { useArenaStream } from './useStream'
 
@@ -75,6 +74,27 @@ export function useDealDetail(id: string | null, streaming: boolean) {
       (query.state.data && TERMINAL_STATES.has(query.state.data.deal.state))
         ? false
         : 2_000,
+  })
+}
+
+/**
+ * Several deals at once, on the same cache keys as `useDealDetail` — the proof
+ * page needs the receipts of more than one bet, and a deal already open in a
+ * drill-in is never fetched twice for being read in two places.
+ */
+export function useDealDetails(ids: string[], streaming: boolean): DealDetail[] {
+  return useQueries({
+    queries: ids.map((id) => ({
+      queryKey: ['arena', 'deal', id],
+      queryFn: () => arena.deal(id),
+      refetchInterval: (query: { state: { data?: DealDetail | undefined } }) =>
+        streaming ||
+        (query.state.data && TERMINAL_STATES.has(query.state.data.deal.state))
+          ? (false as const)
+          : 2_000,
+    })),
+    combine: (results) =>
+      results.flatMap((result) => (result.data ? [result.data] : [])),
   })
 }
 
@@ -216,38 +236,10 @@ export function useEventFeed(): {
   return { events, streamOpen, isError: !streamOpen && isError }
 }
 
-/**
- * What the drill-down column shows: a deal, a challenge mid-haggle, or an
- * agent. Auto-selects the most recent live deal (else the most recent one)
- * until the operator clicks something; a click pins the choice and polling
- * never steals the selection back.
- */
-export type Selection =
-  | { kind: 'deal'; id: string }
-  | { kind: 'challenge'; id: string }
-  | { kind: 'agent'; id: string }
-
-export function useSelection(deals: DealSummary[] | undefined): {
-  selection: Selection | null
-  select: (selection: Selection) => void
-} {
-  const [pinned, setPinned] = useState<Selection | null>(null)
-  if (pinned !== null) return { selection: pinned, select: setPinned }
-  const live = deals?.find((deal) => !TERMINAL_STATES.has(deal.state))
-  const id = live?.id ?? deals?.[0]?.id
-  return {
-    selection: id === undefined ? null : { kind: 'deal', id },
-    select: setPinned,
-  }
-}
-
-/** Challenges an agent is haggling in, for the agent drill-down. */
-export function challengesOf(
-  agentId: string,
-  challenges: ChallengeSummary[] | undefined,
-): ChallengeSummary[] {
-  return (challenges ?? []).filter((challenge) => challenge.challengerId === agentId)
-}
+// The selection hook this file used to export is gone: the URL is the
+// selection now. Its auto-pick rule — the most recent live deal, else the most
+// recent one — lives on in `/story`, which is the only screen that still has to
+// choose a bet for you.
 
 /** Whether an event involves an agent: addressed to it, or naming it. */
 export function eventInvolves(event: ArenaEvent, agentId: string): boolean {

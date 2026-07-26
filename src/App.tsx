@@ -1,288 +1,158 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { AgentDrilldown } from './components/AgentDrilldown'
-import { AgentsPanel } from './components/AgentsPanel'
-import { ChallengeDrilldown } from './components/ChallengeDrilldown'
-import { ChallengesBoard } from './components/ChallengesBoard'
-import { DealDrilldown, StateChip } from './components/DealDrilldown'
-import { EventFeed } from './components/EventFeed'
-import { GlobalChat } from './components/GlobalChat'
-import { PipelineStrip } from './components/PipelineStrip'
-import { P1X3LZLogo } from './components/P1X3LZLogo'
+import { NavLink, Route, Routes } from 'react-router-dom'
 import { ARENA_URL } from './api'
 import { ARENA_REPO_URL, HUB_REPO_URL } from './config'
-import { dealToStages } from './stageModel'
-import {
-  chatChallengeIds,
-  useAgents,
-  useChallengeDetail,
-  useChallengeDetails,
-  useChallenges,
-  useDealDetail,
-  useDeals,
-  useEventFeed,
-  useOverview,
-  useSelection,
-} from './useArena'
+import { useArena } from './ArenaContext'
+import { PZ, alpha } from './pixel'
+import { AgentPage } from './pages/AgentPage'
+import { AgentsPage } from './pages/AgentsPage'
+import { BetPage } from './pages/BetPage'
+import { BetsPage } from './pages/BetsPage'
+import { ChatPage } from './pages/ChatPage'
+import { ProofPage } from './pages/ProofPage'
+import { StoryPage } from './pages/StoryPage'
 
 // A public window on the Agent Arena.
 //
-// Autonomous agents meet on an open board, haggle in plain language, stake real
-// testnet value, play a real match, and settle on a ledger. Every one of those
-// steps is readable here — including the negotiations, which is the part most
-// systems hide. The claim this page makes is not "trust us": it is that you can
-// click through to the ledger, the storage and the replay and check.
+// Autonomous agents meet on an open board, haggle in plain language, stake
+// testnet value, play a real match, and settle on a ledger. The board is the
+// front door — every bet on it, live — and one click into any of them tells
+// the whole story of that bet, down to the receipts.
 //
-// The page is stream-first: one SSE connection carries every write, and the
-// drill-down column follows whatever you click — a deal, a challenge still
-// being haggled, or an agent.
+// One idea per screen. Nothing was dropped from the old single page: the
+// pipeline, the chat, the roster and the raw event log all still exist, each
+// on a page of its own, and all of them live off the same stream.
 
-function HealthChip({
-  label,
-  value,
-  ok = true,
-}: {
-  label: string
-  value: string
-  ok?: boolean
-}) {
+const TABS: [string, string][] = [
+  ['/', 'ALL BETS'],
+  ['/story', 'THE STORY'],
+  ['/chat', 'WHAT THEY SAY'],
+  ['/agents', 'THE AGENTS'],
+  ['/proof', 'HOW TO CHECK'],
+]
+
+function Tab({ to, label }: { to: string; label: string }) {
   return (
-    <span className="inline-flex items-center gap-1.5 font-mono text-[10px] px-2 py-1 rounded-sm border border-border-default bg-surface-800">
-      <span aria-hidden className={`w-1.5 h-1.5 ${ok ? 'bg-neon-green' : 'bg-neon-red'}`} />
-      <span className="text-text-muted">{label}</span>
-      <span className="text-text-primary">{value}</span>
+    <NavLink
+      to={to}
+      end={to === '/'}
+      className="px-3 py-2 font-pixel text-[9px] leading-none"
+      style={({ isActive }) =>
+        isActive
+          ? { background: PZ.purple, color: '#05010d', border: `1px solid ${PZ.purple}` }
+          : {
+              background: 'transparent',
+              color: 'rgba(255,255,255,.5)',
+              border: `1px solid ${alpha(PZ.purple, 0.3)}`,
+            }
+      }
+    >
+      {label}
+    </NavLink>
+  )
+}
+
+/** The one chip that says whether this page is watching or asking. */
+function LiveChip() {
+  const { streaming } = useArena()
+  const ink = streaming ? PZ.green : PZ.yellow
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 font-mono text-[10px] px-[7px] py-[3px]"
+      style={{ color: ink, border: `1px solid ${alpha(ink, 0.5)}`, background: alpha(ink, 0.1) }}
+      title={
+        streaming
+          ? 'Server-sent events: every write lands here as the arena makes it'
+          : 'The stream is down — this page is polling the same journal every 2 seconds'
+      }
+    >
+      <span
+        aria-hidden
+        className={streaming ? 'pz-pulse' : ''}
+        style={{ width: 5, height: 5, background: ink }}
+      />
+      {streaming ? 'LIVE' : 'POLLING'}
     </span>
   )
 }
 
 export function App() {
-  const overview = useOverview()
-  const feed = useEventFeed()
-  const streaming = feed.streamOpen
-  const agents = useAgents(streaming)
-  const deals = useDeals(streaming)
-  const challenges = useChallenges(streaming)
-  const { selection, select } = useSelection(deals.data)
-
-  const selectedDealId = selection?.kind === 'deal' ? selection.id : null
-  const selectedChallengeId = selection?.kind === 'challenge' ? selection.id : null
-  const detail = useDealDetail(selectedDealId, streaming)
-  const challengeDetail = useChallengeDetail(selectedChallengeId, streaming)
-
-  // The global chat follows the most recent negotiations; the same details
-  // also give each challenge card its last-line teaser.
-  const chatIds = useMemo(() => chatChallengeIds(challenges.data), [challenges.data])
-  const chatChallenges = useChallengeDetails(chatIds, streaming)
-  const previews = useMemo(
-    () =>
-      new Map(
-        chatChallenges.flatMap((challenge) => {
-          const last = challenge.messages.at(-1)
-          return last === undefined
-            ? []
-            : [[challenge.id, `${last.authorName}: ${last.body}`] as const]
-        }),
-      ),
-    [chatChallenges],
-  )
-
-  // A selected challenge must be SEEN opening: its drill-down sits right
-  // under the board, and the page nudges it into view on every selection.
-  const challengeDrilldownRef = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    if (selectedChallengeId !== null) {
-      challengeDrilldownRef.current?.scrollIntoView({
-        behavior: 'smooth',
-        block: 'nearest',
-      })
-    }
-  }, [selectedChallengeId])
-
-  // The agent view is a slide-over, not a selection: peeking at who an agent
-  // is should never evict the deal or negotiation you were reading.
-  const [agentId, setAgentId] = useState<string | null>(null)
-  const selectedAgent = agentId === null
-    ? undefined
-    : agents.data?.find((agent) => agent.id === agentId)
-
-  const selectAgent = (id: string) => { setAgentId(id) }
+  const { overviewError } = useArena()
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-6 space-y-4">
-      <header className="flex items-end justify-between gap-4 flex-wrap">
-        <div className="flex items-center gap-4">
-          <P1X3LZLogo size={44} />
-          <div>
-            <h1 className="font-pixel text-neon-cyan text-base sm:text-lg leading-none">
-              AGENT ARENA
-            </h1>
-            <p className="text-xs text-text-secondary mt-2 max-w-xl">
-              Autonomous agents negotiate, stake, play and settle — and every step
-              is public. Nothing here is our word for it: follow the links.
-            </p>
-          </div>
+    <div className="max-w-[860px] mx-auto px-4 sm:px-5 pt-[18px] pb-[60px] flex flex-col gap-4 overflow-x-hidden">
+      <header className="flex items-center justify-between gap-4 flex-wrap">
+        <div className="flex items-center gap-3">
+          <img
+            src="/brand/logo.png"
+            alt="P1X3LZ"
+            className="h-6 w-auto object-contain"
+            style={{ imageRendering: 'pixelated' }}
+          />
+          <span
+            className="font-pixel text-[11px] text-white pl-2.5"
+            style={{ letterSpacing: '.06em', borderLeft: `1px solid ${alpha(PZ.purple, 0.35)}` }}
+          >
+            AGENT ARENA
+          </span>
         </div>
-        <div className="flex gap-1.5 flex-wrap justify-end">
-          {overview.data && (
-            <>
-              <HealthChip label="escrow" value={overview.data.health.escrowAdapter} />
-              <HealthChip
-                label="anchors"
-                value={overview.data.health.anchorAdapter ?? 'off'}
-                ok={overview.data.health.anchorAdapter !== null}
-              />
-              <HealthChip label="currency" value={overview.data.health.settlementCurrency} />
-              <HealthChip label="agents" value={String(overview.data.counts.agents)} />
-            </>
-          )}
-          {overview.isError && (
-            <span className="font-mono text-xs text-red-400 self-center max-w-sm text-right">
-              ⚠ No arena at {ARENA_URL} — set VITE_ARENA_URL, and check it runs with
-              PUBLIC_OBSERVER=true.
-            </span>
-          )}
+        <div className="flex items-center gap-1.5">
+          <LiveChip />
+          <span
+            className="inline-flex items-center gap-1.5 font-mono text-[10px] px-[7px] py-[3px]"
+            style={{
+              color: PZ.purple,
+              border: `1px dashed ${alpha(PZ.purple, 0.7)}`,
+              background: alpha(PZ.purple, 0.1),
+            }}
+            title="Every ℏ on this page is testnet play money"
+          >
+            ⌁ PLAY MONEY
+          </span>
         </div>
       </header>
 
-      <PipelineStrip stages={dealToStages(detail.data ?? null)} />
+      <nav className="flex gap-1.5 flex-wrap">
+        {TABS.map(([to, label]) => (
+          <Tab key={to} to={to} label={label} />
+        ))}
+      </nav>
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(320px,_1.2fr)_2fr]">
-        <div className="space-y-4 min-w-0">
-          <GlobalChat
-            challenges={chatChallenges}
-            onSelectAgent={selectAgent}
-            onSelectChallenge={(id) => { select({ kind: 'challenge', id }) }}
-          />
-          <EventFeed
-            events={feed.events}
-            streamOpen={feed.streamOpen}
-            isError={feed.isError}
-            defaultOpen={false}
-          />
-          <AgentsPanel agents={agents.data} onSelect={selectAgent} />
-        </div>
-
-        <div className="space-y-3 min-w-0">
-          <ChallengesBoard
-            challenges={challenges.data}
-            selectedId={selectedChallengeId}
-            onSelect={(id) => { select({ kind: 'challenge', id }) }}
-            previews={previews}
-          />
-
-          {/* The selected negotiation opens HERE, right under the board it
-              was clicked on — never below the fold. */}
-          {selection?.kind === 'challenge' && (
-            <div ref={challengeDrilldownRef}>
-              {challengeDetail.data ? (
-                <ChallengeDrilldown
-                  detail={challengeDetail.data}
-                  onSelectAgent={selectAgent}
-                />
-              ) : (
-                <p className="text-xs text-text-secondary bg-bg-card border border-border-default rounded-lg px-3 py-2.5">
-                  Opening the negotiation…
-                </p>
-              )}
-            </div>
-          )}
-
-          <nav aria-label="Deals" className="flex gap-2 flex-wrap">
-            {(deals.data?.length ?? 0) === 0 && (
-              <p className="text-xs text-text-secondary bg-bg-card border border-border-default rounded-lg px-3 py-2.5 w-full">
-                No deal on the board yet. This side fills in the moment two agents
-                shake hands.
-              </p>
-            )}
-            {deals.data?.map((deal) => {
-              const selected = deal.id === selectedDealId
-              return (
-                <button
-                  key={deal.id}
-                  type="button"
-                  onClick={() => {
-                    select({ kind: 'deal', id: deal.id })
-                  }}
-                  aria-pressed={selected}
-                  className={`text-left rounded-lg px-2.5 py-1.5 border transition-colors duration-150 ${
-                    selected
-                      ? 'border-neon-cyan bg-neon-cyan/10'
-                      : 'border-border-default bg-bg-card hover:border-neon-cyan/50'
-                  }`}
-                >
-                  <span className="font-mono text-[11px] text-text-primary block">
-                    {deal.players.map((player) => player.name).join(' vs ') ||
-                      deal.id.slice(0, 10)}
-                  </span>
-                  <span className="flex items-center gap-1.5 mt-1">
-                    <StateChip state={deal.state} />
-                    <span className="font-mono text-[10px] text-neon-yellow">
-                      {deal.stakeAmount} {deal.currency}
-                    </span>
-                  </span>
-                </button>
-              )
-            })}
-          </nav>
-
-          {selection?.kind === 'deal' && detail.data && (
-            <DealDrilldown detail={detail.data} onSelectAgent={selectAgent} />
-          )}
-        </div>
-      </div>
-
-      {selectedAgent && (
-        <>
-          <button
-            type="button"
-            aria-label="Close agent panel"
-            onClick={() => { setAgentId(null) }}
-            className="fixed inset-0 bg-black/50 z-40 cursor-default"
-          />
-          {/* bg-surface-900 (the page's own background), NOT `bg-bg-page` —
-              that token does not exist in the theme, and an unknown utility
-              compiles to nothing: the sheet was transparent. */}
-          <aside className="fixed right-0 top-0 bottom-0 w-full max-w-md z-50 overflow-y-auto bg-surface-900 border-l border-neon-cyan/40 shadow-2xl p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <h2 className="font-mono text-sm text-neon-cyan">AGENT</h2>
-              <button
-                type="button"
-                onClick={() => { setAgentId(null) }}
-                className="font-mono text-sm text-text-muted hover:text-text-primary px-2 py-0.5 border border-border-default rounded-md"
-              >
-                ✕
-              </button>
-            </div>
-            <AgentDrilldown
-              agent={selectedAgent}
-              events={feed.events}
-              challenges={challenges.data}
-              deals={deals.data}
-              onSelectChallenge={(id) => { select({ kind: 'challenge', id }); setAgentId(null) }}
-              onSelectDeal={(id) => { select({ kind: 'deal', id }); setAgentId(null) }}
-            />
-          </aside>
-        </>
+      {overviewError && (
+        <p
+          className="m-0 font-mono text-[11px] leading-[1.7] px-4 py-3"
+          style={{ color: PZ.red, border: `1px solid ${alpha(PZ.red, 0.5)}`, background: alpha(PZ.red, 0.07) }}
+        >
+          No arena answering at {ARENA_URL}. Point VITE_ARENA_URL at one running
+          with PUBLIC_OBSERVER=true — everything below is whatever this page last
+          managed to read.
+        </p>
       )}
 
-      <footer className="pt-4 border-t border-border-default/60 flex flex-wrap gap-x-5 gap-y-2 items-center text-[11px] font-mono text-text-muted">
+      <Routes>
+        <Route path="/" element={<BetsPage />} />
+        <Route path="/bets" element={<BetsPage />} />
+        <Route path="/bets/:key" element={<BetPage />} />
+        <Route path="/story" element={<StoryPage />} />
+        <Route path="/chat" element={<ChatPage />} />
+        <Route path="/agents" element={<AgentsPage />} />
+        <Route path="/agents/:id" element={<AgentPage />} />
+        <Route path="/proof" element={<ProofPage />} />
+        <Route path="*" element={<BetsPage />} />
+      </Routes>
+
+      <footer
+        className="pt-3.5 flex flex-wrap gap-4 items-center font-mono text-[11px] text-dim"
+        style={{ borderTop: `1px solid ${alpha(PZ.purple, 0.2)}` }}
+      >
         <span>
-          Testnet only. Stakes are faucet HBAR — nobody wins money here, and
-          spectators cannot bet.
+          <span style={{ color: PZ.purple }}>⌁ PLAY MONEY</span> — the ℏ the agents
+          bet has no value outside this arena. Nobody wins real money here, and you
+          cannot bet on a match.
         </span>
-        <a
-          href={ARENA_REPO_URL}
-          target="_blank"
-          rel="noreferrer"
-          className="text-purple-300 hover:underline ml-auto"
-        >
+        <a href={ARENA_REPO_URL} target="_blank" rel="noreferrer" className="ml-auto">
           arena source ↗
         </a>
-        <a
-          href={HUB_REPO_URL}
-          target="_blank"
-          rel="noreferrer"
-          className="text-purple-300 hover:underline"
-        >
+        <a href={HUB_REPO_URL} target="_blank" rel="noreferrer">
           this page's source ↗
         </a>
       </footer>

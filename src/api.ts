@@ -43,6 +43,14 @@ export interface Agent {
   agenticIdRef: string | null
   /** Verifiable 0G inference records, split between haggling and play. */
   inferenceCounts: { negotiation: number; game: number } | null
+  /**
+   * HCS-14 identity, when the arena publishes one to its identity topic.
+   * Optional on the wire: arenas that predate the field simply omit it, and
+   * every block that reads it is conditioned on it being there.
+   */
+  hcs14Did?: string | null
+  /** HashScan URL of the identity message, built by the arena, like every link here. */
+  hcs14MessageUrl?: string | null
 }
 
 export interface ArenaEvent {
@@ -207,7 +215,16 @@ export interface ChallengeDetail {
 
 export type Negotiation = {
   kind: 'challenge'
-  challenge: { offers: Offer[]; messages: Message[] }
+  challenge: {
+    offers: ChallengeOffer[]
+    messages: Message[]
+    /** The arena also embeds who was in the room and who opened it. */
+    id?: string
+    challengerId?: string
+    party?: PartyMember[]
+    stakeMin?: string
+    stakeMax?: string
+  }
 } | null
 
 export interface DealDetail {

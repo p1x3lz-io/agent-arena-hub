@@ -1,4 +1,5 @@
+# pnpm 11 uses allowBuilds; onlyBuiltDependencies kept for pnpm 10 readers.
 allowBuilds:
-  esbuild: set this to true or false
+  esbuild: true
 onlyBuiltDependencies:
   - esbuild

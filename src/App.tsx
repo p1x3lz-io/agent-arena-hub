@@ -80,21 +80,27 @@ export function App() {
 
   return (
     <div className="max-w-[860px] mx-auto px-4 sm:px-5 pt-[18px] pb-[60px] flex flex-col gap-4 overflow-x-hidden">
-      <header className="flex items-center justify-between gap-4 flex-wrap">
-        <div className="flex items-center gap-3">
+      <header className="flex flex-col items-center gap-3 pt-1">
+        <div className="flex items-end justify-center gap-3 sm:gap-4">
+          <img
+            src="/brand/mascot.png"
+            alt=""
+            className="h-14 sm:h-20 w-auto object-contain"
+            style={{ imageRendering: 'pixelated' }}
+          />
           <img
             src="/brand/logo.png"
             alt="P1X3LZ"
-            className="h-6 w-auto object-contain"
+            className="h-12 sm:h-[72px] w-auto object-contain"
             style={{ imageRendering: 'pixelated' }}
           />
-          <span
-            className="font-pixel text-[11px] text-white pl-2.5"
-            style={{ letterSpacing: '.06em', borderLeft: `1px solid ${alpha(PZ.purple, 0.35)}` }}
-          >
-            AGENT ARENA
-          </span>
         </div>
+        <span
+          className="font-pixel text-[13px] sm:text-[15px] text-white"
+          style={{ letterSpacing: '.28em' }}
+        >
+          AGENT ARENA
+        </span>
         <div className="flex items-center gap-1.5">
           <LiveChip />
           <span

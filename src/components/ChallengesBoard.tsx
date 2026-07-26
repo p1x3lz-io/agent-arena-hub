@@ -39,7 +39,9 @@ export function ChallengesBoard({
           negotiation you can read here as it happens.
         </p>
       )}
-      <div className="flex gap-2 flex-wrap">
+      {/* One horizontal rail, never a wrap: opening a drill-down below must not
+          reflow the board and push cards out of sight. */}
+      <div className="flex gap-2 overflow-x-auto pb-1.5">
         {challenges?.map((challenge) => {
           const selected = challenge.id === selectedId
           const preview = previews?.get(challenge.id)
@@ -50,7 +52,7 @@ export function ChallengesBoard({
               onClick={() => { onSelect(challenge.id) }}
               aria-pressed={selected}
               title="Open this negotiation"
-              className={`text-left rounded-lg px-2.5 py-1.5 border transition-colors duration-150 cursor-pointer group ${
+              className={`text-left rounded-lg px-2.5 py-1.5 border transition-colors duration-150 cursor-pointer group shrink-0 w-56 ${
                 selected
                   ? 'border-violet bg-violet/10'
                   : 'border-border-default bg-bg-card hover:border-violet hover:bg-violet/5'

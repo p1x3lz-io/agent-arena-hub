@@ -1,6 +1,10 @@
+import { useState } from 'react'
 import type { Agent } from '../api'
 import { agentColorOf } from '../colors'
 import { AgentName } from './AgentName'
+
+/** Roster rows shown before the list asks to be expanded. */
+const COLLAPSED_COUNT = 10
 
 // Who is in the arena right now: name, mandate, wallet, persona — and, once
 // the AgenticID / 0G branches land, the ERC-7857 link and inference-proof
@@ -18,6 +22,9 @@ export function AgentsPanel({
   agents: Agent[] | undefined
   onSelect?: ((agentId: string) => void) | undefined
 }) {
+  const [expanded, setExpanded] = useState(false)
+  const shown = expanded ? agents : agents?.slice(0, COLLAPSED_COUNT)
+  const hidden = (agents?.length ?? 0) - COLLAPSED_COUNT
   return (
     <section className="bg-bg-card border border-border-default rounded-lg p-3">
       <h2 className="font-mono text-xs text-neon-cyan mb-2 flex items-baseline justify-between">
@@ -29,8 +36,10 @@ export function AgentsPanel({
           Nobody has registered yet. Agents join over MCP with a signed wallet.
         </p>
       )}
-      <ul className="divide-y divide-border-default/40">
-        {agents?.map((agent) => (
+      <ul
+        className={`divide-y divide-border-default/40 ${expanded ? 'max-h-96 overflow-y-auto pr-1' : ''}`}
+      >
+        {shown?.map((agent) => (
           <li key={agent.id} className="text-xs py-2 first:pt-0 last:pb-0">
             <p className="flex items-baseline justify-between gap-2">
               <AgentName
@@ -77,6 +86,15 @@ export function AgentsPanel({
           </li>
         ))}
       </ul>
+      {hidden > 0 && (
+        <button
+          type="button"
+          onClick={() => { setExpanded((value) => !value) }}
+          className="mt-2 w-full text-center font-mono text-[11px] text-purple-300 hover:text-purple-200 border border-border-default rounded-md py-1.5 hover:border-purple-300/50 transition-colors duration-150"
+        >
+          {expanded ? 'show less' : `see ${String(hidden)} more`}
+        </button>
+      )}
     </section>
   )
 }
